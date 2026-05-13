@@ -26,11 +26,11 @@
 #define d_t 32 //dimension t of the lattice
 
 #define Boundary 0 //define boundary condition, 0 for Periodic and 1 for Perfect colour conductor(PCC)
-
+#define save 0 //save data if 0
 #define betal 10 // coupling constant 
 #define epsilonl 0.1 //epsilon for the metropolis algorithm
 #define upd 1 //metropolis updates in every hit of each point
-#define W 80 //number of autocorrelation coeficcientes saved 
+#define W 80 //number of autocorrelation terms saved 
 #define pmeasure 8
 
 
@@ -86,9 +86,8 @@ int main()
 		int* accept, * accepth = (int*)malloc(l.V * sizeof(int));// create the cuda array that measures the accept rate
 		cudaMalloc(&accept, l.V * sizeof(int)); cudaMemset(accept, 0, l.V * sizeof(int));
 
-		double* sum,*sum2,*sumP;// create the cuda arrays to save the results
+		double* sum,*sum2;// create the cuda arrays to save the results
 		cudaMalloc(&sum, l.V * sizeof(double)); cudaMemset(sum, 0, l.V * sizeof(double)); cudaMalloc(&sum2, l.V * sizeof(double)); cudaMemset(sum2, 0, l.V * sizeof(double));
-		//cudaMalloc(&sumP, P_R*l.V/l.x * sizeof(double)); cudaMemset(sumP, 0, P_R*l.V/l.x * sizeof(double));
 
 
 
@@ -152,7 +151,6 @@ int main()
 
 			
 			if (i % block_size == 0) {
-				//eblock_average[i_block] = mean_lattice(sum,sumh, block_size, l,true); i_block++;
 				printf("%lf Time %d Left(min)%lf\n", (double)i / N, time(NULL) - t_n, (double)(time(NULL) - t_ini) * (N - i) / i / 60);
 				t_n = time(NULL);
 			}
@@ -173,7 +171,7 @@ int main()
         #endif
 		printf("accept %lf\n\n",saccept);
 
-		double energy[2], energy2[2], energy3[2*P_R]; //mean_variance(eblock_average, N_block, energy,true);
+		double energy[2], energy2[2];
 		mean_variance(en, N, energy, true);
 		mean_variance(en2, N, energy2, true);
 
@@ -184,12 +182,14 @@ int main()
 		 char bound[12] = "pcc";
         #endif
 
-	    //save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l,bound,nsave); //save energy observable
-		//save_energy_av(energy[0], energy[1], energy2[0], energy2[1], N_term, N, N_cor, saccept, l,bound,nsave); //save average plaquette
-		//save_en_seq(en2, en, N_term, N, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
+		 double autoc[W], autoc2[W], autoc3[W]; autocorrelation(en, N, W, energy[0], energy[1], autoc); autocorrelation(en2, N, W, energy2[0], energy2[1], autoc2);
+#if save==0
 
-	   double autoc[W], autoc2[W], autoc3[W]; autocorrelation(en, N, W, energy[0], energy[1], autoc); autocorrelation(en2, N, W, energy2[0], energy2[1], autoc2);
-	 //save_autocorrelation(autoc, W, N, N_cor, N_term, l,bound,nsave);save_autocorrelation_av(autoc2, W, N, N_cor, N_term, l,bound,nsave);//save autocorrelation
+	    save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l,bound,nsave); //save energy observable
+		save_energy_av(energy[0], energy[1], energy2[0], energy2[1], N_term, N, N_cor, saccept, l,bound,nsave); //save average plaquette
+		save_en_seq(en2, en, N_term, N, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
+	    save_autocorrelation(autoc, W, N, N_cor, N_term, l,bound,nsave);save_autocorrelation_av(autoc2, W, N, N_cor, N_term, l,bound,nsave);//save autocorrelation
+#endif
 	
 
 		free(phi);  free(accepth); cudaFree(phid); cudaFree(accept); cudaFree(sum); cudaFree(devStates); cudaFree(sum2);  

@@ -1,7 +1,6 @@
 void save_autocorrelation(double* result, int W, int N, int N_cor, int N_term, struct lattice l, char bound[12], char nsave[2]) {
 	char filename[256]; FILE* f;
 	snprintf(filename, sizeof(filename), "Autocorrelation_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound,nsave);
-	//snprintf(filename, sizeof(filename), "Autocorrelation_%d_%d_%d_B_%.2lf.txt", l.t, l.x, l.y, l.beta);
 	if ((f = fopen(filename, "w")) == NULL) {
 		printf("Error creating the file");
 		exit(1);
@@ -17,7 +16,6 @@ void save_energy(double mean, double variance, int N_term, int N, int N_cor, dou
 	char filename[256]; FILE* f;
 
 	snprintf(filename, sizeof(filename), "Energy_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound,nsave);
-	//snprintf(filename, sizeof(filename), "Energy_%d_%d_%d_B_%.2lf.txt", l.t, l.x, l.y, l.beta);
 	if ((f = fopen(filename, "w")) == NULL) {
 		printf("Error creating the file");
 		exit(1);
@@ -33,7 +31,6 @@ void save_energy_av(double mean, double variance, double mean2, double variance2
 	char filename[256]; FILE* f;
 
 	snprintf(filename, sizeof(filename), "Energy_av_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound,nsave);
-	//snprintf(filename, sizeof(filename), "Energy_%d_%d_%d_B_%.2lf.txt", l.t, l.x, l.y, l.beta);
 	if ((f = fopen(filename, "w")) == NULL) {
 		printf("Error creating the file");
 		exit(1);
@@ -48,7 +45,6 @@ void save_energy_av(double mean, double variance, double mean2, double variance2
 void save_autocorrelation_av(double* result, int W, int N, int N_cor, int N_term, struct lattice l, char bound[12], char nsave[2]) {
 	char filename[256]; FILE* f;
 	snprintf(filename, sizeof(filename), "Autocorrelation_av_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound,nsave);
-	//snprintf(filename, sizeof(filename), "Autocorrelation_%d_%d_%d_B_%.2lf.txt", l.t, l.x, l.y, l.beta);
 	if ((f = fopen(filename, "w")) == NULL) {
 		printf("Error creating the file");
 		exit(1);
@@ -66,7 +62,6 @@ void save_en_seq(double* mean, double* energy, int N_term, int N, int N_cor, dou
 	char filename[256]; FILE* f;
 
 	snprintf(filename, sizeof(filename), "Check_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound, nsave);
-	//snprintf(filename, sizeof(filename), "Energy_%d_%d_%d_B_%.2lf.txt", l.t, l.x, l.y, l.beta);
 	if ((f = fopen(filename, "w")) == NULL) {
 		printf("Error creating the file");
 		exit(1);
