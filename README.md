@@ -8,10 +8,6 @@
 
 ## Overview
 
-This project implements a Monte Carlo simulation of pure SU(2) lattice gauge theory in three-dimensional Euclidean spacetime (2+1 dimensions) using the Wilson plaquette action. The average plaquette and internal energy are computed. The code uses **CUDA** for NVIDIA GPUs. 
-
-Two different boundary conditions are implemented in the spatial directions: periodic and perfect colour conductor boundary conditions.
-
 This project implements a Monte Carlo simulation of pure SU(2) lattice gauge theory in four-dimensional Euclidean spacetime using the Wilson plaquette action. The average plaquette and internal energy are computed. The code uses **CUDA** for NVIDIA GPUs and is parallelized at the maximum extend allowed by the Wilson action. Two different boundary conditions are implemented for the second spatial dimensions, periodic and perfect colour conductor boundaty conditions. 
 
 This code was primarily developed and used to generate the results presented in the PhD thesis **[Properties of the quantum vacuum in non-abelian gauge theories](https://arxiv.org/abs/2605.18220)**. See Chapter 4 for an explanation of the two different boundary conditions and parallelization. The results of this code are presented in Chapter 5 and Appendix B.
