@@ -20,9 +20,6 @@ __global__ void MC_update_even_x_pcc(double* phi, curandStateMRG32k3a_t* state, 
 	xp = l.y * l.dt;//the positive derivative in x
 	if (pos_x == (l.x - 1))
 		xp = -l.y * (l.x - 1) * l.dt;
-	xm = -l.y * l.dt;//the negative derivative in x
-	if (pos_x == 0)
-		xm = l.y * (l.x - 1) * l.dt;
 	tp = l.y * l.x*l.dt;//the positive derivative in t
 	if (pos_t == (l.t - 1))
 		tp = -l.y * l.x * (l.t - 1) * l.dt;
@@ -79,10 +76,6 @@ __global__ void MC_update_odd_x_pcc(double* phi, curandStateMRG32k3a_t* state, i
 	xp = l.y * l.dt;////the positive derivative in x
 	if (pos_x == (l.x - 1))
 		xp = -l.y * (l.x - 1) * l.dt;
-	xm = -l.y*l.dt;///the negative derivative in x
-	if (pos_x == 0)
-		xm = l.y * (l.x - 1) * l.dt;
-
 	tp = l.y * l.x * l.dt;//the positive derivative in t
 	if (pos_t == (l.t - 1))
 		tp = -l.y * l.x * (l.t - 1) * l.dt;
@@ -142,9 +135,6 @@ __global__ void MC_update_even_t_pcc(double* phi, curandStateMRG32k3a_t* state, 
 	tp = l.y * l.x*l.dt;//the positive derivative in t
 	if (pos_t == (l.t - 1))
 		tp = -l.y * l.x * (l.t - 1) * l.dt;
-	tm = -l.y * l.x*l.dt;//the negative derivative in t
-	if (pos_t == 0)
-		tm = l.y * l.x * (l.t - 1) * l.dt;
 	if (!(pos_y == 0 && par_aux == 0)) {
 		double aux[4], aux2[4], A[4];
 		su2_zero(A);
@@ -202,9 +192,6 @@ __global__ void MC_update_odd_t_pcc(double* phi, curandStateMRG32k3a_t* state, i
 	tp = l.y * l.x * l.dt;//the positive derivative in t
 	if (pos_t == (l.t - 1))
 		tp = -l.y * l.x * (l.t - 1) * l.dt;
-	tm = -l.y * l.x*l.dt;//the negative derivative in t
-	if (pos_t == 0)
-		tm = l.y * l.x * (l.t - 1) * l.dt;
 	if(!(pos_y == 0 && par_aux == 1)) {
 		double aux[4], aux2[4], A[4];
 		su2_zero(A);

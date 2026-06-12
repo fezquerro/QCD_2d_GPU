@@ -15,19 +15,25 @@
 #include "functions\statistics.h"
 #include "functions\output.h"
 
-
-#define N 1000 // number of MC steps
-#define N_term 100//number of MC steps to termalize
-#define N_block 10 //number of times where the time left is printed
-#define N_cor 1 //number of MC steps between measures
-
 #define d_y 8//dimension y of the lattice
 #define d_x 32 //dimension x of the lattice
 #define d_t 32 //dimension t of the lattice
-
-#define Boundary 0 //define boundary condition, 0 for Periodic and 1 for Perfect colour conductor(PCC)
-#define save 0 //save data if 0
 #define betal 10 // coupling constant 
+#define Boundary 0 //define boundary condition, 0 for Periodic and 1 for Perfect colour conductor(PCC)
+
+#define readconf 0 //read configuration if 1 and termalize, read conf and not termalize if 2
+#define init 0 // 0 hot start, 1 cold start
+#define sconf 0 // save configuration if 0
+#define save 0 //save if 0
+
+#define N 1000 // number of MC steps
+#define N_term 500//number of MC steps to termalize
+#define N_block 10 //number of time the time left is printed
+#define Nblock_term 5 //number of times the time left is printed for thermalization
+#define Nsave 4 //number of times the results are saved and printed during simulation
+#define N_cor 1 //number of MC steps between measures
+
+
 #define epsilonl 0.1 //epsilon for the metropolis algorithm
 #define upd 1 //metropolis updates in every hit of each point
 #define W 80 //number of autocorrelation terms saved 
@@ -37,6 +43,9 @@
 int main()
 {
 	char nsave[2] = "1";//counter for saving different runs with the same parameters
+	char nconfr[2] = "1";
+	char nconfs[2] = "1";
+	int Nterms = 0, inits;
 	int co = 0;
 	for (int co = 0; co < 1; co++) {//a loop for having different size of dy
 
@@ -65,17 +74,42 @@ int main()
 		double* phi = (double*)malloc(l.V*l.dt * sizeof(double)), * phid; cudaMalloc(&phid, l.V * l.dt * sizeof(double));//create the lattice array in cpu & GPU
 
 
-        #if Boundary==0
+#if Boundary==0
 		printf("PERIODIC BOUNDARY CONDITIONS\n\n");
+		char bound[12] = "per";
+ #if readconf==0
+		inits = init;
+  #if init==0
 		rand_init2 << <nblocks / 2, nthreads >> > (phid, devStates, l2);//create the lattice with random entries in (-1,1)
-		//id_init2 << <nblocks / 2, nthreads >> > (phid, l2);//create the lattice with unity
 
-        #else
+  #else
+		id_init2 << <nblocks / 2, nthreads >> > (phid, l2);//create the lattice with unity
+  #endif
+
+ #else
+		read_conf(phi, l, &Nterms, &inits, bound, nconfr);
+		cudaMemcpy(phid, phi, l.V * l.dt * sizeof(double), cudaMemcpyHostToDevice);
+ #endif	
+
+#else
 		printf("PERFECT COLOUR CONDUCTOR BOUNDARY CONDITIONS\n\n");
+		char bound[12] = "pcc";
+ #if readconf==0
+		inits = init;
+  #if init==0
 		rand_init2_pcc << <nblocks / 2, nthreads >> > (phid, devStates, l2);//create the lattice with random entries in (-1,1) and unity in y=0 for PCC
-		//id_init2 << <nblocks / 2, nthreads >> > (phid, l2);//create the lattice with unity
 
-        #endif
+  #else
+		id_init2 << <nblocks / 2, nthreads >> > (phid, l2);//create the lattice with unity
+  #endif
+
+ #else
+		read_conf(phi, l, &Nterms, &inits, bound, nconfr);
+		cudaMemcpy(phid, phi, l.V * l.dt * sizeof(double), cudaMemcpyHostToDevice);
+ #endif	
+
+
+#endif
 				
 
 		//cudaMemcpy(phi, phid, l.V * l.dt * sizeof(double), cudaMemcpyDeviceToHost); printlattice(phi, l2);
@@ -97,24 +131,40 @@ int main()
 
 
 
-		int i=1,j, i_block = 0,k;
-		int t_ini, t_fin, t_n, block_size = N / N_block;
-		for (j = 0; j < N_term; j++) {
-			if (j % 100 == 0)
+		int i,j, i_block = 0;
+		int t_ini,t_ini_mc, t_fin, t_n, block_size_t = N_term / Nblock_term, block_size = N / N_block, block_s_size = N / Nsave;//blocks for print time and saving
+		t_ini = time(NULL); t_n = time(NULL);
+		double energy[2], energy2[2]; //variables to save the energy and av plaquette
+		double autoc[W], autoc2[W]; //variables to save autocorrelation
+		double saccept;
+#if readconf<2
+		for (i = 1; i < N_term+1; i++) {
+			if (i % 100 == 0)
 				normalize<<<nblocks,nthreads>>>(phid, l); //normalize the links to keep unitarity
            #if Boundary==0
 			mc_up_per(nthreads, nblocks, phid, l2, accept, devStates, 0); //update for periodic boundary conditions
            #else
 			mc_up_pcc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
            #endif
-			
+			if (i % block_size_t == 0) {
+				printf("%lf Time %d Left(min)%lf\n", (double)i / (N_term), time(NULL) - t_n, (double)(time(NULL) - t_ini) * (N_term - i) / i / 60);
+				fflush(stdout);
+				t_n = time(NULL);
+			}
 
 		}
 		normalize << <nblocks, nthreads >> > (phid, l);
+  #if sconf == 0
+
+		cudaMemcpy(phi, phid, l.V * l.dt * sizeof(double), cudaMemcpyDeviceToHost);
+
+		save_conf(phi, l, Nterms, inits, bound, nconfs);
+  #endif
+#endif
 		//plaquette_printd << <nblocks, nthreads >> > (phid, l2);
 		cudaMemcpy(phi, phid, l.V * l.dt * sizeof(double), cudaMemcpyDeviceToHost); print_det(phi, l); //check average det (should be 1)
 		cudaMemset(accept, 0, l.V * sizeof(int));
-		t_ini = time(NULL); t_n = time(NULL);
+		t_ini_mc = time(NULL); t_n = time(NULL);
 		for (i = 1; i < N + 1; i++) {
 			for (j = 0; j < N_cor; j++) {
 				
@@ -151,8 +201,24 @@ int main()
 
 			
 			if (i % block_size == 0) {
-				printf("%lf Time %d Left(min)%lf\n", (double)i / N, time(NULL) - t_n, (double)(time(NULL) - t_ini) * (N - i) / i / 60);
+				printf("%lf Time %d Left(min)%lf\n", (double)i / N, time(NULL) - t_n, (double)(time(NULL) - t_ini_mc) * (N - i) / i / 60);
 				t_n = time(NULL);
+				fflush(stdout);
+			}
+
+			if (i % block_s_size == 0) {//compute average and save them
+				cudaMemcpy(en, end, i * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
+				cudaMemcpy(en2, end2, i * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
+				printf("Energy "); mean_variance(en, i, energy, true);autocorrelation(en, i, W, energy[0], energy[1], autoc); 
+				printf("Plaquette "); mean_variance(en2, i, energy2, true); autocorrelation(en2, i, W, energy2[0], energy2[1], autoc2);
+				fflush(stdout);
+#if save==0
+				saccept = mean_lattice(accept, accepth, N * N_cor * l.d * l.updates, l, false);
+				save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l, bound, nsave); //save energy observable
+				save_energy_av(energy[0], energy[1], energy2[0], energy2[1], N_term, N, N_cor, saccept, l, bound, nsave); //save average plaquette
+				save_autocorrelation(autoc, W, i, N_cor, Nterms, l, bound, nsave); save_autocorrelation_av(autoc2, W, i, N_cor, Nterms, l, bound, nsave);
+				save_en_seq(en2, en, N_term, i, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
+#endif
 			}
 
 		}
@@ -165,24 +231,14 @@ int main()
 		cudaMemcpy(en, end, N * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
 		cudaMemcpy(en2, end2, N * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
 
-		double saccept = mean_lattice(accept, accepth, N * N_cor*l.d*l.updates, l, true);
+		 saccept = mean_lattice(accept, accepth, N * N_cor*l.d*l.updates, l, true);
         #if Boundary==1
 		saccept = saccept / ((double)(l.y-1)/l.y+1/(double)l.y/3);
         #endif
 		printf("accept %lf\n\n",saccept);
 
-		double energy[2], energy2[2];
-		mean_variance(en, N, energy, true);
-		mean_variance(en2, N, energy2, true);
-
-
-        #if (Boundary==0)
-		 char bound[12] = "per";
-        #else
-		 char bound[12] = "pcc";
-        #endif
-
-		 double autoc[W], autoc2[W], autoc3[W]; autocorrelation(en, N, W, energy[0], energy[1], autoc); autocorrelation(en2, N, W, energy2[0], energy2[1], autoc2);
+		printf("Energy "); mean_variance(en, N, energy, true); autocorrelation(en, N, W, energy[0], energy[1], autoc);
+		printf("Plaquette "); mean_variance(en2, N, energy2, true); autocorrelation(en2, N, W, energy2[0], energy2[1], autoc2);		   
 #if save==0
 
 	    save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l,bound,nsave); //save energy observable

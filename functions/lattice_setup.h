@@ -79,6 +79,26 @@ __global__ void rand_init2_pcc(double* phi, curandStateMRG32k3a_t* state, struct
 
 
 }
+
+void read_conf(double* phi, struct lattice l, int* Nterm, int* initt, char bound[12], char nsave[2])
+{
+	char filename[256]; FILE* f;
+	snprintf(filename, sizeof(filename), "Config_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound, nsave);
+	if ((f = fopen(filename, "rb")) == NULL) {
+		printf("Error creating the file");
+		exit(1);
+	}
+	fread(phi, sizeof(phi[0]), l.V * l.dt, f);
+	fclose(f);
+	snprintf(filename, sizeof(filename), "Config_%d_%d_%d_B_%.2lf_%s_%s_data.txt", l.t, l.x, l.y, l.beta, bound, nsave);
+	if ((f = fopen(filename, "r")) == NULL) {
+		printf("Error creating the file");
+		exit(1);
+	}
+	fscanf(f, "N_termalization %d Type_termalization %d", Nterm, initt);
+	fclose(f);
+}
+
 void printlattice_matrix(double* phi, struct lattice l)//prints the matrices of the lattice
 {
 	for (int t = 0; t < l.t; t++)

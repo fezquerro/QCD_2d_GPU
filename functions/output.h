@@ -73,3 +73,21 @@ void save_en_seq(double* mean, double* energy, int N_term, int N, int N_cor, dou
 	fclose(f);
 
 }
+
+void save_conf(double* phi, struct lattice l, int N_term, int init, char bound[12], char nsave[3])
+{
+	char filename[256]; FILE* f;
+	snprintf(filename, sizeof(filename), "Config_%d_%d_%d_B_%.2lf_%s_%s.txt", l.t, l.x, l.y, l.beta, bound, nsave);
+	if ((f = fopen(filename, "wb")) == NULL) {
+		printf("Error creating the file");
+		exit(1);
+	}
+	fwrite(phi, sizeof(phi[0]), l.V * l.dt, f);
+	fclose(f);
+	snprintf(filename, sizeof(filename), "Config_%d_%d_%d_B_%.2lf_%s_%s_data.txt", l.t, l.x, l.y, l.beta, bound, nsave);
+	if ((f = fopen(filename, "w")) == NULL) {
+		printf("Error creating the file");
+		exit(1);
+	}
+	fprintf(f, "N_termalization %d Type_termalization %d", N_term, init);
+}
