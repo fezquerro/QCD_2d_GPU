@@ -6,31 +6,38 @@
 #include <curand_kernel.h>
 #include <curand.h>
 #include <math.h>
-#include "functions\su2.h"
-#include "functions\lattice_setup.h"
-#include "functions\mc_updates.h"
-#include "functions\mc_updates_pcc.h"
-#include "functions\observables.h"
-#include "functions\parallel_reduction.h"
-#include "functions\statistics.h"
-#include "functions\output.h"
 
-#define d_y 8//dimension y of the lattice
-#define d_x 32 //dimension x of the lattice
-#define d_t 32 //dimension t of the lattice
-#define betal 10 // coupling constant 
-#define Boundary 0 //define boundary condition, 0 for Periodic and 1 for Perfect colour conductor(PCC)
+//define the flag for each update algorithm
+#define METROPOLIS 0 //Metropolis, upd hits per link with proposals of size epsilonl
+#define HEATBATH 1 //heat-bath, new link drawn from its exact local distribution (decorrelates faster)
+#define ALGO HEATBATH //select the update algorithm
+
+#include "functions/su2.h"
+#include "functions/lattice_setup.h"
+#include "functions/mc_updates.h"
+#include "functions/mc_updates_pcc.h"
+#include "functions/mc_updates_pmc.h"
+#include "functions/observables.h"
+#include "functions/parallel_reduction.h"
+#include "functions/statistics.h"
+#include "functions/output.h"
+
+#define d_y 4//dimension y of the lattice
+#define d_x 96 //dimension x of the lattice
+#define d_t 96 //dimension t of the lattice
+#define betal 20 // coupling constant 
+#define Boundary 2 //define boundary condition, 0 for Periodic and 1 for Perfect colour conductor(PCC)
 
 #define readconf 0 //read configuration if 1 and termalize, read conf and not termalize if 2
 #define init 0 // 0 hot start, 1 cold start
 #define sconf 0 // save configuration if 0
 #define save 0 //save if 0
 
-#define N 1000 // number of MC steps
-#define N_term 500//number of MC steps to termalize
-#define N_block 10 //number of time the time left is printed
-#define Nblock_term 5 //number of times the time left is printed for thermalization
-#define Nsave 4 //number of times the results are saved and printed during simulation
+#define N 50000 // number of MC steps
+#define N_term 20000//number of MC steps to termalize
+#define N_block 20 //number of time the time left is printed
+#define Nblock_term 10 //number of times the time left is printed for thermalization
+#define Nsave 5 //number of times the results are saved and printed during simulation
 #define N_cor 1 //number of MC steps between measures
 
 
@@ -46,24 +53,26 @@ int main()
 	char nconfr[2] = "1";
 	char nconfs[2] = "1";
 	int Nterms = 0, inits;
-	int co = 0;
 	for (int co = 0; co < 1; co++) {//a loop for having different size of dy
 
 		// we define the lattice parameters
 		struct lattice l = { 10 * co + d_y,d_x,d_t, (10 * co + d_y) * d_x * d_t,3,4,12,betal,epsilonl,upd };// dimz,dimy,dimx,dimt,V,dimensions,size of the group,d*sg,beta,delta,upd
 		struct lattice l2 = { l.y / 2,l.x,l.t,l.V / 2,3,4,12,l.beta,l.epsilon,upd };//same for half of the lattice
 		printf("N %d Lt %d L %d Ly %d V %d Dim %d DimRep %d Dimtot %d \n", N, l.t, l.x, l.y,l.V,l.d,l.dg,l.dt);
+		if (l.t % 2 || l.x % 2 || l.y % 2) { // the checkerboard decomposition needs even sizes in every direction
+			printf("Lt, Lx and Ly must be even\n");
+			return 1;
+		}
 
 		int nblocks, nthreads;//define the number of blocks and threads needed for the lattice
-		if (l.V > 256) {
-			nthreads = 256;
-			nblocks = l.V / 256;
-		}
-		else {
-			nthreads = l.V / 2;
-			nblocks = 2;
-		}
+		nthreads = 256; // largest block size <= 256 that divides the half lattice, so no site is skipped
+		while (l2.V % nthreads != 0)
+			nthreads--;
+		nblocks = 2 * (l2.V / nthreads); // blocks for the full lattice, the MC kernels use nblocks / 2
 		printf("nblocks %d nthreads %d\n", nblocks, nthreads);
+		if (ALGO == METROPOLIS) printf("METROPOLIS UPDATES epsilon %.2f hits %d\n", l.epsilon, l.updates);
+		if (ALGO == HEATBATH) printf("HEAT-BATH UPDATES\n");
+		int hits = (ALGO == METROPOLIS) ? l.updates : 1; //updates of each link per sweep, to normalize the acceptance
 
 
 		curandStateMRG32k3a_t* devStates;// use the MRG32k random number generator from cuRAND
@@ -91,7 +100,7 @@ int main()
 		cudaMemcpy(phid, phi, l.V * l.dt * sizeof(double), cudaMemcpyHostToDevice);
  #endif	
 
-#else
+#elif Boundary==1
 		printf("PERFECT COLOUR CONDUCTOR BOUNDARY CONDITIONS\n\n");
 		char bound[12] = "pcc";
  #if readconf==0
@@ -108,6 +117,22 @@ int main()
 		cudaMemcpy(phid, phi, l.V * l.dt * sizeof(double), cudaMemcpyHostToDevice);
  #endif	
 
+#else
+		printf("PERFECT MAGNETIC CONDUCTOR BOUNDARY CONDITIONS\n\n");
+		char bound[12] = "pmc";
+#if readconf==0
+		inits = init;
+#if init==0
+		rand_init2 << <nblocks / 2, nthreads >> > (phid, devStates, l2);//create the lattice with random entries in (-1,1)
+
+#else
+		id_init2 << <nblocks / 2, nthreads >> > (phid, l2);//create the lattice with unity
+#endif
+
+#else
+		read_conf(phi, l, &Nterms, &inits, bound, nconfr);
+		cudaMemcpy(phid, phi, l.V * l.dt * sizeof(double), cudaMemcpyHostToDevice);
+#endif	
 
 #endif
 				
@@ -131,7 +156,7 @@ int main()
 
 
 
-		int i,j, i_block = 0;
+		int i,j;
 		int t_ini,t_ini_mc, t_fin, t_n, block_size_t = N_term / Nblock_term, block_size = N / N_block, block_s_size = N / Nsave;//blocks for print time and saving
 		t_ini = time(NULL); t_n = time(NULL);
 		double energy[2], energy2[2]; //variables to save the energy and av plaquette
@@ -143,8 +168,10 @@ int main()
 				normalize<<<nblocks,nthreads>>>(phid, l); //normalize the links to keep unitarity
            #if Boundary==0
 			mc_up_per(nthreads, nblocks, phid, l2, accept, devStates, 0); //update for periodic boundary conditions
-           #else
+           #elif Boundary==1
 			mc_up_pcc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
+           #else
+			mc_up_pmc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
            #endif
 			if (i % block_size_t == 0) {
 				printf("%lf Time %d Left(min)%lf\n", (double)i / (N_term), time(NULL) - t_n, (double)(time(NULL) - t_ini) * (N_term - i) / i / 60);
@@ -154,6 +181,7 @@ int main()
 
 		}
 		normalize << <nblocks, nthreads >> > (phid, l);
+		Nterms = N_term + Nterms; //total number of thermalization steps of this configuration
   #if sconf == 0
 
 		cudaMemcpy(phi, phid, l.V * l.dt * sizeof(double), cudaMemcpyDeviceToHost);
@@ -168,19 +196,24 @@ int main()
 		for (i = 1; i < N + 1; i++) {
 			for (j = 0; j < N_cor; j++) {
 				
-                #if Boundary==0
-				 mc_up_per(nthreads, nblocks, phid, l2, accept, devStates, 0); //update for periodic boundary conditions
-                #else
-				 mc_up_pcc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
-                #endif
+               #if Boundary==0
+				   mc_up_per(nthreads, nblocks, phid, l2, accept, devStates, 0); //update for periodic boundary conditions
+               #elif Boundary==1
+				mc_up_pcc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
+               #else
+				mc_up_pmc(nthreads, nblocks, phid, l2, accept, devStates); //update for perfect colour conductor boundary conditions
+               #endif
 			}
 			if (i % 100 == 0)
 				normalize << <nblocks, nthreads >> > (phid, l); //normalize the links to keep unitarity
 
 			//plaquette_av << <nblocks, nthreads >> > (phid, sum, l2);
 			//energy << <nblocks, nthreads >> > (phid, sum, l2);
+           #if Boundary==0 || Boundary==1
 		    en_av << <nblocks, nthreads >> > (phid, sum,sum2, l2);//compute the energy and average of plaquettes
-
+           #else
+			en_av_neu << <nblocks, nthreads >> > (phid, sum, sum2, l2);//compute the energy and average of plaquettes
+           #endif
             #if (d_x==96 && d_t==96) //compute with parallel reduction for lattice 96 x 96 x y 
 			mean_lattice_par_96(sum, endaux, end + i - 1, l.V, l.y);
 		    mean_lattice_par_96(sum2, endaux, end2 + i - 1, l.V, l.y);
@@ -213,11 +246,14 @@ int main()
 				printf("Plaquette "); mean_variance(en2, i, energy2, true); autocorrelation(en2, i, W, energy2[0], energy2[1], autoc2);
 				fflush(stdout);
 #if save==0
-				saccept = mean_lattice(accept, accepth, N * N_cor * l.d * l.updates, l, false);
-				save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l, bound, nsave); //save energy observable
-				save_energy_av(energy[0], energy[1], energy2[0], energy2[1], N_term, N, N_cor, saccept, l, bound, nsave); //save average plaquette
+				saccept = mean_lattice(accept, accepth, i * N_cor * l.d * hits, l, false);
+        #if Boundary==1
+				saccept = saccept / ((double)(l.y-1)/l.y+1/(double)l.y/3);
+        #endif
+				save_energy(energy[0], energy[1], Nterms, N, N_cor, saccept, l, bound, nsave); //save energy observable
+				save_energy_av(energy[0], energy[1], energy2[0], energy2[1], Nterms, N, N_cor, saccept, l, bound, nsave); //save average plaquette
 				save_autocorrelation(autoc, W, i, N_cor, Nterms, l, bound, nsave); save_autocorrelation_av(autoc2, W, i, N_cor, Nterms, l, bound, nsave);
-				save_en_seq(en2, en, N_term, i, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
+				save_en_seq(en2, en, Nterms, i, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
 #endif
 			}
 
@@ -231,7 +267,7 @@ int main()
 		cudaMemcpy(en, end, N * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
 		cudaMemcpy(en2, end2, N * sizeof(double), cudaMemcpyDeviceToHost); //copy the results into cpu
 
-		 saccept = mean_lattice(accept, accepth, N * N_cor*l.d*l.updates, l, true);
+		 saccept = mean_lattice(accept, accepth, N * N_cor * l.d * hits, l, true);
         #if Boundary==1
 		saccept = saccept / ((double)(l.y-1)/l.y+1/(double)l.y/3);
         #endif
@@ -241,10 +277,10 @@ int main()
 		printf("Plaquette "); mean_variance(en2, N, energy2, true); autocorrelation(en2, N, W, energy2[0], energy2[1], autoc2);		   
 #if save==0
 
-	    save_energy(energy[0], energy[1], N_term, N, N_cor, saccept, l,bound,nsave); //save energy observable
-		save_energy_av(energy[0], energy[1], energy2[0], energy2[1], N_term, N, N_cor, saccept, l,bound,nsave); //save average plaquette
-		save_en_seq(en2, en, N_term, N, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
-	    save_autocorrelation(autoc, W, N, N_cor, N_term, l,bound,nsave);save_autocorrelation_av(autoc2, W, N, N_cor, N_term, l,bound,nsave);//save autocorrelation
+	    save_energy(energy[0], energy[1], Nterms, N, N_cor, saccept, l,bound,nsave); //save energy observable
+		save_energy_av(energy[0], energy[1], energy2[0], energy2[1], Nterms, N, N_cor, saccept, l,bound,nsave); //save average plaquette
+		save_en_seq(en2, en, Nterms, N, N_cor, 1, l, bound, nsave);//save each step of the energy and plaquette
+	    save_autocorrelation(autoc, W, N, N_cor, Nterms, l,bound,nsave);save_autocorrelation_av(autoc2, W, N, N_cor, Nterms, l,bound,nsave);//save autocorrelation
 #endif
 	
 

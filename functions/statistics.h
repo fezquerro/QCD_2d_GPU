@@ -19,12 +19,11 @@ double mean_lattice(int* measured, int* measure, int n, struct lattice l, bool p
 	double mean = 0, variance = 0;
 	for (int i = 0; i < l.V; i++) {
 		mean += measure[i];
-		variance += measure[i] * measure[i];
+		variance += (double)measure[i] * measure[i];
 	}
 	mean = mean / l.V / n;
 	variance = sqrt((variance / l.V / n - mean * mean) / l.V / (n-1));
 	if (print) printf("%.10lf +- %.10lf\n", mean, variance);
-	cudaMemset(measured, 0, l.V * sizeof(int));
 	return  mean;
 }
 

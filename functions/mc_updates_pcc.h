@@ -9,7 +9,7 @@ __global__ void MC_update_even_x_pcc(double* phi, curandStateMRG32k3a_t* state, 
 	int par_aux = (pos_t + pos_x) % 2;
 	int pos = (id + l.V) * l.dt;
 	int idr = id * l.dt;
-	int yp, ym, xp, xm, tp, tm;
+	int yp, ym, xp, tp, tm;
 	
 	yp = par_aux * l.dt; //the positive derivative in y
 	if (pos_y == (l.y - 1) && par_aux == 1)
@@ -49,9 +49,7 @@ __global__ void MC_update_even_x_pcc(double* phi, curandStateMRG32k3a_t* state, 
 		//su2_print_vec(aux2);
 		su2_sum(A, aux2);
 	
-		//for (int i = 0; i < l.updates; i++)
-		//accept[id] += metropolis(A, phi + idr + l.dg, l.beta, l.epsilon, state + id);
-		accept[id] += heat_bath(A, phi + idr+l.dg, l.beta, state + id);
+		accept[id] += link_update(A, phi + idr+l.dg, l, state + id);
 	}
 }
 
@@ -64,7 +62,7 @@ __global__ void MC_update_odd_x_pcc(double* phi, curandStateMRG32k3a_t* state, i
 	int par_aux = (pos_t + pos_x) % 2;
 	int id = (pos + l.V) * l.dt;
 	int posr = pos * l.dt;
-	int  yp, ym, xp, xm, tp, tm;
+	int  yp, ym, xp, tp, tm;
 	
 	yp = (1 - par_aux) * l.dt; //the positive derivative in z
 	if (pos_y == (l.y - 1) && par_aux == 0)
@@ -105,9 +103,7 @@ __global__ void MC_update_odd_x_pcc(double* phi, curandStateMRG32k3a_t* state, i
 		//su2_print_vec(aux2);
 		su2_sum(A, aux2);
 
-		//for (int i = 0; i < l.updates; i++)
-		//accept[id / l.dt] += metropolis(A, phi + id + l.dg, l.beta, l.epsilon, state + pos);
-		accept[id/l.dt] += heat_bath(A, phi + id+l.dg, l.beta, state + pos);
+		accept[id/l.dt] += link_update(A, phi + id+l.dg, l, state + pos);
 	}
 }
 __global__ void MC_update_even_t_pcc(double* phi, curandStateMRG32k3a_t* state, int* accept, struct lattice l) {//update one site
@@ -118,7 +114,7 @@ __global__ void MC_update_even_t_pcc(double* phi, curandStateMRG32k3a_t* state, 
 	int par_aux = (pos_t + pos_x) % 2;
 	int pos = (id + l.V) * l.dt;
 	int idr = id * l.dt;
-	int yp, ym, xp, xm, tp, tm;
+	int yp, ym, xp, xm, tp;
 	
 	yp = par_aux * l.dt; //the positive derivative in y
 	if (pos_y == (l.y - 1) && par_aux == 1)
@@ -158,9 +154,7 @@ __global__ void MC_update_even_t_pcc(double* phi, curandStateMRG32k3a_t* state, 
 		//su2_print_vec(aux2);
 		su2_sum(A, aux2);
 
-		//for (int i = 0; i < l.updates; i++)
-		//accept[id] += metropolis(A, phi + idr + 2 * l.dg, l.beta, l.epsilon, state + id);
-		accept[id] += heat_bath(A, phi + idr+2*l.dg, l.beta, state + id);
+		accept[id] += link_update(A, phi + idr+2*l.dg, l, state + id);
 	}
 }
 
@@ -173,7 +167,7 @@ __global__ void MC_update_odd_t_pcc(double* phi, curandStateMRG32k3a_t* state, i
 	int par_aux = (pos_t + pos_x) % 2;
 	int id = (pos + l.V) * l.dt;
 	int posr = pos * l.dt;
-	int  yp, ym, xp, xm, tp, tm;
+	int  yp, ym, xp, xm, tp;
 	
 	yp = (1 - par_aux) * l.dt; //the positive derivative in z
 	if (pos_y == (l.y - 1) && par_aux == 0)
@@ -215,13 +209,11 @@ __global__ void MC_update_odd_t_pcc(double* phi, curandStateMRG32k3a_t* state, i
 		//su2_print_vec(aux2);
 		su2_sum(A, aux2);
 		
-		//for (int i = 0; i < l.updates; i++)
-		//accept[id / l.dt] += metropolis(A, phi + id + 2 * l.dg, l.beta, l.epsilon, state + pos);
-		accept[id/l.dt] += heat_bath(A, phi + id+2*l.dg, l.beta, state + pos);
+		accept[id/l.dt] += link_update(A, phi + id+2*l.dg, l, state + pos);
 	}
 }
 
-void mc_up_dir(int nthreads,int nblocks,double* phi, struct lattice l, int* accept, curandStateMRG32k3a_t* devStates) {
+void mc_up_pcc(int nthreads,int nblocks,double* phi, struct lattice l, int* accept, curandStateMRG32k3a_t* devStates) {
 	MC_update_even_y << < nblocks / 2, nthreads >> > (phi, devStates, accept, l,0);
 	MC_update_odd_y << < nblocks / 2, nthreads >> > (phi, devStates, accept, l,0);
 	MC_update_even_x_pcc << < nblocks / 2, nthreads >> > (phi, devStates, accept, l);

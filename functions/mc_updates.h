@@ -1,3 +1,18 @@
+//Metropolis accept test: returns exp(-s) > u, with the same decision as computing exp in double precision
+//The double exp is slow on GPUs with reduced FP64 throughput, so exp(-s) is first estimated in single precision.
+//expf has a relative error below 3e-7 and rounding s to float adds below |s|*6e-8 (5e-6 for s < 88, where expf underflows),
+//so the exact value is always inside ef*(1 -+ 1e-4): outside that band the float result decides,
+//inside it (about 1e-5 of the updates) exp is computed in double. For s > 88 ef = 0 and the change is rejected, which is also exact
+//because exp(-88) ~ 6e-39 is smaller than any uniform number produced by the generators
+__device__ __forceinline__ bool metropolis_accept(double s, double u) {
+	const double tol = 1e-4; //relative band around the single precision estimate
+	double ef = expf(-(float)s);
+	if (u < ef * (1 - tol)) //certainly accepted
+		return true;
+	if (u > ef * (1 + tol)) //certainly rejected
+		return false;
+	return exp(-s) > u; //rare case: decide with the exact value
+}
 __device__ int metropolis(double* A, double* phi, double beta, double epsilon, curandStateMRG32k3a_t* state) {//metropolis algorithm for SU2
 
 	double Unew[4], deltaU[4];
@@ -12,7 +27,7 @@ __device__ int metropolis(double* A, double* phi, double beta, double epsilon, c
 		su2_copy(Unew, phi);
 		return 1;
 	}
-	if (expf(-s) > curand_uniform_double(state)) {//metropolis algorithm for accepting the change
+	if (metropolis_accept(s, curand_uniform_double(state))) {//metropolis algorithm for accepting the change
 		su2_copy(Unew, phi);
 		return 1;
 	}
@@ -24,7 +39,7 @@ __device__ int metropolis(double* A, double* phi, double beta, double epsilon, c
 __device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3a_t* state) {//heatbath algorithm for SU2
 	double a = su2_normalize_det(A),//norm of the sum of the neighbours product links and normalize A
 		r[3], l=0, aux=2, n, X[4], psi, ctheta;
-	int c = 0, i;
+	int i;
 
 
 	while (aux * aux > 1 - l){//generate X[0] with the correct probability
@@ -38,7 +53,7 @@ __device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3
 
 	// compute random points in the sphere of radious n for the rest of points X[i]
 	/*
-	c = 0; // with random points on a cube
+	int c = 0; // with random points on a cube
 	while (c == 0) {
 		for (i = 0; i < 3; i++)
 			r[i] = 2 * curand_uniform_double(state) - 1;
@@ -69,6 +84,19 @@ __device__ int over_relaxation(double* A, double* phi) {//heatbath algorithm for
 	su2_product_tc1(A, B, phi);
 	return 1;
 }
+//Update of a single link, selected with the ALGO flag in kernel.cu
+//HEATBATH: new link drawn from its exact local distribution (Kennedy-Pendleton), always accepted
+//METROPOLIS: l.updates hits with proposals of size l.epsilon, each accepted with probability min(1, exp(-dS))
+__device__ int link_update(double* A, double* phi, struct lattice l, curandStateMRG32k3a_t* state) {
+#if ALGO==HEATBATH
+	return heat_bath(A, phi, l.beta, state);
+#else
+	int acc = 0;
+	for (int i = 0; i < l.updates; i++)
+		acc += metropolis(A, phi, l.beta, l.epsilon, state);
+	return acc;
+#endif
+}
 __global__ void MC_update_even_y(double* phi, curandStateMRG32k3a_t* state, int* accept, struct lattice l,int update) {//update one site
 	int id = blockDim.x * blockIdx.x + threadIdx.x;// define the position in the lattice
 	int pos_y = id % l.y;
@@ -77,7 +105,7 @@ __global__ void MC_update_even_y(double* phi, curandStateMRG32k3a_t* state, int*
 	int par_aux = (pos_t + pos_x) % 2;
 	int pos = (id + l.V)*l.dt;
 	int idr = id * l.dt;
-	int yp, ym, xp, xm, tp, tm;
+	int yp, xp, xm, tp, tm;
 
 	yp = par_aux*l.dt; //the positive derivative in y
 	if (pos_y == (l.y - 1) && par_aux == 1)
@@ -118,10 +146,8 @@ __global__ void MC_update_even_y(double* phi, curandStateMRG32k3a_t* state, int*
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 	
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id] += metropolis(A, phi + idr, l.beta, l.epsilon, state + id);
 	if (update==0)
-	 accept[id] += heat_bath(A, phi + idr, l.beta, state + id);
+	 accept[id] += link_update(A, phi + idr, l, state + id);
 	else
 	accept[id] += over_relaxation(A, phi + idr);
 }
@@ -135,7 +161,7 @@ __global__ void MC_update_odd_y(double* phi, curandStateMRG32k3a_t* state, int* 
 	int par_aux = (pos_t + pos_x) % 2;
 	int id = (pos + l.V)*l.dt;
 	int posr = pos * l.dt;
-	int  yp, ym, xp, xm, tp, tm;
+	int  yp, xp, xm, tp, tm;
 
 	yp = (1 - par_aux)*l.dt; //the positive derivative in z
 	if (pos_y == (l.y - 1) && par_aux == 0)
@@ -176,10 +202,8 @@ __global__ void MC_update_odd_y(double* phi, curandStateMRG32k3a_t* state, int* 
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id/l.dt] += metropolis(A, phi + id, l.beta, l.epsilon, state + pos);
 	if (update==0)
-	accept[id/l.dt] += heat_bath(A, phi + id, l.beta, state + pos);
+	accept[id/l.dt] += link_update(A, phi + id, l, state + pos);
 	else
      accept[id / l.dt] += over_relaxation(A, phi + id);
 }
@@ -191,7 +215,7 @@ __global__ void MC_update_even_x(double* phi, curandStateMRG32k3a_t* state, int*
 	int par_aux = (pos_t + pos_x) % 2;
 	int pos = (id + l.V) * l.dt;
 	int idr = id * l.dt;
-	int yp, ym, xp, xm, tp, tm;
+	int yp, ym, xp, tp, tm;
 	
 	yp = par_aux * l.dt; //the positive derivative in y
 	if (pos_y == (l.y - 1) && par_aux == 1)
@@ -231,10 +255,8 @@ __global__ void MC_update_even_x(double* phi, curandStateMRG32k3a_t* state, int*
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 	
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id] += metropolis(A, phi + idr+l.dg, l.beta, l.epsilon, state + id);
 	if (update == 0)
-	accept[id] += heat_bath(A, phi + idr+l.dg, l.beta, state + id);
+	accept[id] += link_update(A, phi + idr+l.dg, l, state + id);
 	
 		
 	else
@@ -250,7 +272,7 @@ __global__ void MC_update_odd_x(double* phi, curandStateMRG32k3a_t* state, int* 
 	int par_aux = (pos_t + pos_x) % 2;
 	int id = (pos + l.V) * l.dt;
 	int posr = pos * l.dt;
-	int  yp, ym, xp, xm, tp, tm;
+	int  yp, ym, xp,  tp, tm;
 	
 	yp = (1 - par_aux) * l.dt; //the positive derivative in z
 	if (pos_y == (l.y - 1) && par_aux == 0)
@@ -291,10 +313,8 @@ __global__ void MC_update_odd_x(double* phi, curandStateMRG32k3a_t* state, int* 
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 	
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id/l.dt] += metropolis(A, phi + id+l.dg, l.beta, l.epsilon, state + pos);
 	if (update == 0)
-		accept[id / l.dt] += heat_bath(A, phi + id + l.dg, l.beta, state + pos);
+		accept[id / l.dt] += link_update(A, phi + id + l.dg, l, state + pos);
 	else
 		accept[id / l.dt] += over_relaxation(A, phi + id+l.dg);
 	
@@ -308,7 +328,7 @@ __global__ void MC_update_even_t(double* phi, curandStateMRG32k3a_t* state, int*
 	int par_aux = (pos_t + pos_x) % 2;
 	int pos = (id + l.V) * l.dt;
 	int idr = id * l.dt;
-	int yp, ym, xp, xm, tp, tm;
+	int yp, ym, xp, xm, tp;
 	
 	yp = par_aux * l.dt; //the positive derivative in y
 	if (pos_y == (l.y - 1) && par_aux == 1)
@@ -347,12 +367,10 @@ __global__ void MC_update_even_t(double* phi, curandStateMRG32k3a_t* state, int*
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 	
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id] += metropolis(A, phi + idr+2*l.dg, l.beta, l.epsilon, state + id);
 
 	
 	if (update == 0)
-		accept[id] += heat_bath(A, phi + idr + 2 * l.dg, l.beta, state + id);
+		accept[id] += link_update(A, phi + idr + 2 * l.dg, l, state + id);
 
 
 	else
@@ -368,7 +386,7 @@ __global__ void MC_update_odd_t(double* phi, curandStateMRG32k3a_t* state, int* 
 	int par_aux = (pos_t + pos_x) % 2;
 	int id = (pos + l.V) * l.dt;
 	int posr = pos * l.dt;
-	int  yp, ym, xp, xm, tp, tm;
+	int  yp, ym, xp, xm, tp;
 	
 	yp = (1 - par_aux) * l.dt; //the positive derivative in z
 	if (pos_y == (l.y - 1) && par_aux == 0)
@@ -409,12 +427,10 @@ __global__ void MC_update_odd_t(double* phi, curandStateMRG32k3a_t* state, int* 
 	//su2_print_vec(aux2);
 	su2_sum(A, aux2);
 	
-	//for (int i = 0; i < l.updates; i++)
-	//accept[id/l.dt] += metropolis(A, phi + id+2*l.dg, l.beta, l.epsilon, state + pos);
 
 	
 	if (update == 0)
-		accept[id / l.dt] += heat_bath(A, phi + id + 2 * l.dg, l.beta, state + pos);
+		accept[id / l.dt] += link_update(A, phi + id + 2 * l.dg, l, state + pos);
 	else
 		accept[id / l.dt] += over_relaxation(A, phi + id +2* l.dg);
 }

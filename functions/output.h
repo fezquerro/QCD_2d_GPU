@@ -90,4 +90,5 @@ void save_conf(double* phi, struct lattice l, int N_term, int init, char bound[1
 		exit(1);
 	}
 	fprintf(f, "N_termalization %d Type_termalization %d", N_term, init);
+	fclose(f);
 }
