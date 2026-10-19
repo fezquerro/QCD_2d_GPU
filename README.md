@@ -18,14 +18,14 @@ This code was primarily developed and used to generate the results presented in 
 
 ## Features
 
-- **Efficient SU(2) updates**: heat-bath (Kennedy-Pendleton) or Metropolis, selected with the `ALGO` flag, fully implemented in CUDA kernels (an over-relaxation kernel is also available for the periodic updates)
+- **Efficient SU(2) updates**: heat-bath (Kennedy-Pendleton, with `sincospi` and `rsqrt` normalization to reduce the double precision work) or Metropolis, selected with the `ALGO` flag, fully implemented in CUDA kernels (an over-relaxation kernel is also available for the periodic updates)
 - **Fast exact Metropolis test**: the acceptance exp(-dS) is first estimated in single precision and only computed in double precision when the single precision value is too close to the random number to decide, so the decision is always the same as in double precision
 - **GPU Acceleration**: High-performance CUDA implementation with the MRG32k3a generator of cuRAND
 - **Flexible lattice sizes**: any even $N_t \times N_x \times N_y$ lattice (the size of every direction is checked to be even, as required by the checkerboard decomposition); the block size is chosen as the largest one ≤ 256 that divides half of the volume, so no site is skipped
 - **Boundary conditions** in the y direction (`Boundary` flag):
   - `0` periodic
   - `1` perfect colour conductor: the x and t links of the plane y = 0 are fixed to the identity
-  - `2` perfect magnetic conductor: the plaquettes that cross the boundary between y = Ly-1 and y = 0 are removed from the action
+  - `2` perfect magnetic conductor: F_02 = F_12 = 0 at the boundary, so the y-x and y-t plaquettes between y = Ly-1 and y = 0 are fixed to the identity (they do not enter the updates of the boundary links and count as 1 in the average plaquette)
 - **Observables**:
   - Plaquette (average action)
   - Energy (first component of the energy-momentum tensor), measured as the mean over sites of -(1 - P_tx), which uses the t ↔ x symmetry of the lattice (Lt = Lx)
@@ -49,7 +49,7 @@ All parameters are `#define`s at the top of `kernel.cu`:
 | `epsilonl`, `upd` | Metropolis proposal size and number of hits per link |
 | `W` | Number of autocorrelation terms saved |
 
-For the 32x32, 64x64 and 96x96 (t, x) lattices the sum over the lattice uses a parallel reduction (Ly ≥ 4); other sizes use a slower single thread sum.
+The energy and the average plaquette are computed and summed over the lattice in a single kernel (block sums in shared memory added with `atomicAdd`), for any lattice size.
 
 ## Compilation
 
@@ -73,14 +73,4 @@ The names contain the lattice size, β, the boundary condition (`per`, `pcc`, `p
 
 The errors in the files do not include the autocorrelation; use the `Check_` files (binning) or the autocorrelation files for the final errors.
 
-## Validation
 
-The `validation/` folder contains the results of the checks of the code and the scripts to repeat them (see `validation/README.md`):
-
-- strong coupling (β = 0.25) against the analytic leading order prediction for the three boundary conditions and both algorithms
-- heat-bath against Metropolis at β = 3 for the three boundary conditions
-- weak coupling (β = 20)
-- lattices with a half volume that is not a multiple of 256 and the parallel reductions
-- frozen PCC links, restart bookkeeping and the even size check
-
-Every check agrees within 2σ.

@@ -2,16 +2,16 @@ __host__ __device__ double su2_det(double* A) {// determinant of SU2 matrix give
     return A[0] * A[0] + A[1] * A[1] + A[2] * A[2] + A[3] * A[3];
 }
 __host__ __device__ void su2_normalize(double* A) {//normalization of a SU2 matrix given in sigma basis
-    double d = sqrt(su2_det(A));
+    double inv = rsqrt(su2_det(A)); //one reciprocal square root instead of a square root and 4 divisions
     for (int i = 0; i < 4; i++)
-        A[i] = A[i] / d;
+        A[i] = A[i] * inv;
 }
 
 __host__ __device__ double su2_normalize_det(double* A) {//normalization of a SU2 matrix given in sigma basis and return the norm
-    double d = sqrt(su2_det(A));
+    double det = su2_det(A), inv = rsqrt(det);
     for (int i = 0; i < 4; i++)
-        A[i] = A[i] / d;
-    return d;
+        A[i] = A[i] * inv;
+    return det * inv; //sqrt(det)
 }
 __device__ void su2_rand(double*A, curandStateMRG32k3a_t* state){//generate random su2 matrices
 for(int i=0;i<4;i++)

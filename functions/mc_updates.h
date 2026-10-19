@@ -34,7 +34,6 @@ __device__ int metropolis(double* A, double* phi, double beta, double epsilon, c
 	else
 		return 0;
 }
-#define pi 3.14159265358979324
 
 __device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3a_t* state) {//heatbath algorithm for SU2
 	double a = su2_normalize_det(A),//norm of the sum of the neighbours product links and normalize A
@@ -45,7 +44,7 @@ __device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3
 	while (aux * aux > 1 - l){//generate X[0] with the correct probability
 		for (i = 0; i < 3; i++)
 			r[i] = curand_uniform_double(state);
-		aux = cos(2 * pi * r[1]);
+		aux = cospi(2 * r[1]);
 		l = -(log(r[0]) + aux * aux * log(r[2])) / (2 * a * beta);
 		aux = 1 - curand_uniform_double(state);
 	}
@@ -66,12 +65,14 @@ __device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3
 	}
 	*/
 	//generating 2 random angles
-	psi = 2 * pi * curand_uniform_double(state); //generate psi from 0 to 2pi
+	psi = 2 * curand_uniform_double(state); //generate psi/pi from 0 to 2
 	ctheta = 2 * curand_uniform_double(state) - 1; //generate cos (theta) from -1 to 1
 	aux = n * sqrt(1 - ctheta * ctheta);//n*arcsin(theta)
 	X[1] = n * ctheta;
-	X[2] = aux * cos(psi);
-	X[3] = aux * sin(psi);
+	double sp, cp;
+	sincospi(psi, &sp, &cp); //sin(pi psi) and cos(pi psi)
+	X[2] = aux * cp;
+	X[3] = aux * sp;
 
 	su2_product_tc(X, A, phi); // obtain the new link
 

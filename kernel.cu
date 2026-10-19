@@ -18,7 +18,6 @@
 #include "functions/mc_updates_pcc.h"
 #include "functions/mc_updates_pmc.h"
 #include "functions/observables.h"
-#include "functions/parallel_reduction.h"
 #include "functions/statistics.h"
 #include "functions/output.h"
 
@@ -145,14 +144,11 @@ int main()
 		int* accept, * accepth = (int*)malloc(l.V * sizeof(int));// create the cuda array that measures the accept rate
 		cudaMalloc(&accept, l.V * sizeof(int)); cudaMemset(accept, 0, l.V * sizeof(int));
 
-		double* sum,*sum2;// create the cuda arrays to save the results
-		cudaMalloc(&sum, l.V * sizeof(double)); cudaMemset(sum, 0, l.V * sizeof(double)); cudaMalloc(&sum2, l.V * sizeof(double)); cudaMemset(sum2, 0, l.V * sizeof(double));
 
 
 
 		double* end, * en = (double*)malloc(N * sizeof(double)); cudaMalloc(&end, N * sizeof(double)); cudaMemset(end, 0, N * sizeof(double));//create the array to save measures each MC step
 		double* end2, * en2 = (double*)malloc(N * sizeof(double)); cudaMalloc(&end2, N * sizeof(double)); cudaMemset(end2, 0, N * sizeof(double));
-		double* endaux; cudaMalloc(&endaux, l.V / 2 * sizeof(double)); cudaMemset(endaux, 0, l.V / 2 * sizeof(double));
 
 
 
@@ -209,27 +205,7 @@ int main()
 
 			//plaquette_av << <nblocks, nthreads >> > (phid, sum, l2);
 			//energy << <nblocks, nthreads >> > (phid, sum, l2);
-           #if Boundary==0 || Boundary==1
-		    en_av << <nblocks, nthreads >> > (phid, sum,sum2, l2);//compute the energy and average of plaquettes
-           #else
-			en_av_neu << <nblocks, nthreads >> > (phid, sum, sum2, l2);//compute the energy and average of plaquettes
-           #endif
-            #if (d_x==96 && d_t==96) //compute with parallel reduction for lattice 96 x 96 x y 
-			mean_lattice_par_96(sum, endaux, end + i - 1, l.V, l.y);
-		    mean_lattice_par_96(sum2, endaux, end2 + i - 1, l.V, l.y);
-
-            #elif (d_x==64 && d_t==64) //compute with parallel reduction for lattice 64 x 64 x y 
-			mean_lattice_par_64(sum, endaux, end + i - 1, l.V, l.y);
-		    mean_lattice_par_64(sum2, endaux, end2 + i - 1,  l.V, l.y);
-
-            #elif (d_x==32 && d_t==32) //compute with parallel reduction for lattice 32 x 32 x y 
-			mean_lattice_par_32(sum, endaux, end + i - 1,  l.V, l.y);
-			mean_lattice_par_32(sum2, endaux, end2 + i - 1,  l.V, l.y);
-
-            #else //compute the sum with just one core only for other lattices (slow) 
-			mean_lattice_small(sum,  end + i - 1, l.V);
-			mean_lattice_small(sum2,  end2 + i - 1, l.V);
-            #endif
+			en_av<Boundary == 2> << <nblocks, nthreads >> > (phid, end + i - 1, end2 + i - 1, l2);//compute the energy and average of plaquettes
 
 
 			
@@ -284,8 +260,8 @@ int main()
 #endif
 	
 
-		free(phi);  free(accepth); cudaFree(phid); cudaFree(accept); cudaFree(sum); cudaFree(devStates); cudaFree(sum2);  
-		free(en); free(en2);  cudaFree(endaux); cudaFree(end); cudaFree(end2); 
+		free(phi);  free(accepth); cudaFree(phid); cudaFree(accept); cudaFree(devStates);  
+		free(en); free(en2); cudaFree(end); cudaFree(end2); 
 		
     }
     
