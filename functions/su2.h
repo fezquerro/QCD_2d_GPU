@@ -6,6 +6,12 @@ __host__ __device__ void su2_normalize(double* A) {//normalization of a SU2 matr
     for (int i = 0; i < 4; i++)
         A[i] = A[i] * inv;
 }
+//previous version with a square root and 4 divisions in double precision (slower)
+//__host__ __device__ void su2_normalize(double* A) {
+//    double d = sqrt(su2_det(A));
+//    for (int i = 0; i < 4; i++)
+//        A[i] = A[i] / d;
+//}
 
 __host__ __device__ double su2_normalize_det(double* A) {//normalization of a SU2 matrix given in sigma basis and return the norm
     double det = su2_det(A), inv = rsqrt(det);
@@ -13,6 +19,13 @@ __host__ __device__ double su2_normalize_det(double* A) {//normalization of a SU
         A[i] = A[i] * inv;
     return det * inv; //sqrt(det)
 }
+//previous version with a square root and 4 divisions in double precision (slower)
+//__host__ __device__ double su2_normalize_det(double* A) {
+//    double d = sqrt(su2_det(A));
+//    for (int i = 0; i < 4; i++)
+//        A[i] = A[i] / d;
+//    return d;
+//}
 __device__ void su2_rand(double*A, curandStateMRG32k3a_t* state){//generate random su2 matrices
 for(int i=0;i<4;i++)
     A[i]= curand_uniform_double(state) -0.5;

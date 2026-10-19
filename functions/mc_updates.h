@@ -35,49 +35,77 @@ __device__ int metropolis(double* A, double* phi, double beta, double epsilon, c
 		return 0;
 }
 
-__device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3a_t* state) {//heatbath algorithm for SU2
-	double a = su2_normalize_det(A),//norm of the sum of the neighbours product links and normalize A
-		r[3], l=0, aux=2, n, X[4], psi, ctheta;
-	int i;
-
-
-	while (aux * aux > 1 - l){//generate X[0] with the correct probability
-		for (i = 0; i < 3; i++)
-			r[i] = curand_uniform_double(state);
-		aux = cospi(2 * r[1]);
-		l = -(log(r[0]) + aux * aux * log(r[2])) / (2 * a * beta);
-		aux = 1 - curand_uniform_double(state);
-	}
-	X[0] = 1 - 2 * l; n = sqrt(1 - X[0] * X[0]);
-
-	// compute random points in the sphere of radious n for the rest of points X[i]
-	/*
-	int c = 0; // with random points on a cube
-	while (c == 0) {
-		for (i = 0; i < 3; i++)
-			r[i] = 2 * curand_uniform_double(state) - 1;
-		aux = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
-		if (aux <= 1)
-			c = 1;
-    }
-	for (i = 0; i < 3; i++) {
-		X[i + 1] = r[i] * n / sqrt(aux);
-	}
-	*/
-	//generating 2 random angles
-	psi = 2 * curand_uniform_double(state); //generate psi/pi from 0 to 2
-	ctheta = 2 * curand_uniform_double(state) - 1; //generate cos (theta) from -1 to 1
-	aux = n * sqrt(1 - ctheta * ctheta);//n*arcsin(theta)
-	X[1] = n * ctheta;
-	double sp, cp;
-	sincospi(psi, &sp, &cp); //sin(pi psi) and cos(pi psi)
-	X[2] = aux * cp;
-	X[3] = aux * sp;
-
+//heat-bath algorithm for SU2 (Kennedy-Pendleton)
+//the random numbers of the distribution are generated in single precision (logf, cospif, sincospif), which is faster
+//(about 1.4x for the whole simulation on GPUs with reduced double precision throughput, see validation/data/performance.csv),
+//and the new link is built and normalized in double precision, so it is unitary to double precision.
+//The distribution agrees with the double precision version below (tested with 1e9 links per staple norm and 8e4 sweeps)
+__device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3a_t* state) {
+	double a = su2_normalize_det(A), X[4];//norm of the sum of the neighbours product links and normalize A
+	float inv = (float)(0.5 / (a * beta)), lf, aux;
+	do {//generate X[0] with the correct probability
+		float r0 = curand_uniform(state), r1 = curand_uniform(state), r2 = curand_uniform(state);
+		float c = cospif(2 * r1);
+		lf = -(logf(r0) + c * c * logf(r2)) * inv;
+		aux = 1 - curand_uniform(state);
+	} while (aux * aux > 1 - lf);
+	X[0] = 1 - 2 * (double)lf;
+	double n = sqrt(1 - X[0] * X[0]);
+	float ct = 2 * curand_uniform(state) - 1, sp, cp; //cos(theta) from -1 to 1 and psi from 0 to 2pi
+	sincospif(2 * curand_uniform(state), &sp, &cp);
+	float st = sqrtf(fmaxf(0.f, 1 - ct * ct));
+	double v1 = ct, v2 = (double)st * cp, v3 = (double)st * sp;
+	double s = n * rsqrt(v1 * v1 + v2 * v2 + v3 * v3); //unit direction in double precision times n
+	X[1] = v1 * s;
+	X[2] = v2 * s;
+	X[3] = v3 * s;
 	su2_product_tc(X, A, phi); // obtain the new link
-
 	return 1;
 }
+//previous heat-bath with all the random numbers of the distribution in double precision (slower)
+//__device__ int heat_bath(double* A, double* phi, double beta, curandStateMRG32k3a_t* state) {//heatbath algorithm for SU2
+//	double a = su2_normalize_det(A),//norm of the sum of the neighbours product links and normalize A
+//		r[3], l=0, aux=2, n, X[4], psi, ctheta;
+//	int i;
+//
+//
+//	while (aux * aux > 1 - l){//generate X[0] with the correct probability
+//		for (i = 0; i < 3; i++)
+//			r[i] = curand_uniform_double(state);
+//		aux = cospi(2 * r[1]);
+//		l = -(log(r[0]) + aux * aux * log(r[2])) / (2 * a * beta);
+//		aux = 1 - curand_uniform_double(state);
+//	}
+//	X[0] = 1 - 2 * l; n = sqrt(1 - X[0] * X[0]);
+//
+//	// compute random points in the sphere of radious n for the rest of points X[i]
+//	/*
+//	int c = 0; // with random points on a cube
+//	while (c == 0) {
+//		for (i = 0; i < 3; i++)
+//			r[i] = 2 * curand_uniform_double(state) - 1;
+//		aux = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+//		if (aux <= 1)
+//			c = 1;
+//    }
+//	for (i = 0; i < 3; i++) {
+//		X[i + 1] = r[i] * n / sqrt(aux);
+//	}
+//	*/
+//	//generating 2 random angles
+//	psi = 2 * curand_uniform_double(state); //generate psi/pi from 0 to 2
+//	ctheta = 2 * curand_uniform_double(state) - 1; //generate cos (theta) from -1 to 1
+//	aux = n * sqrt(1 - ctheta * ctheta);//n*arcsin(theta)
+//	X[1] = n * ctheta;
+//	double sp, cp;
+//	sincospi(psi, &sp, &cp); //sin(pi psi) and cos(pi psi)
+//	X[2] = aux * cp;
+//	X[3] = aux * sp;
+//
+//	su2_product_tc(X, A, phi); // obtain the new link
+//
+//	return 1;
+//}
 __device__ int over_relaxation(double* A, double* phi) {//heatbath algorithm for SU2
 	double a = su2_normalize_det(A),//norm of the sum of the neighbours product links and normalize A
 		B[4];
